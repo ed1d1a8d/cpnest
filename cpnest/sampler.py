@@ -12,17 +12,17 @@ class Sampler(object):
     """
     Sampler class.
     Initialisation arguments:
-    
+
     usermodel:
     user defined model to sample
-    
+
     maxmcmc:
     maximum number of mcmc steps to be used in the sampler
-    
+
     verbose:
     display debug information on screen
     default: False
-    
+
     poolsize:
     number of objects for the affine invariant sampling
     default: 1000
@@ -38,7 +38,7 @@ class Sampler(object):
         self.verbose=verbose
         self.acceptance=0.0
         self.initialised=False
-        
+
     def reset(self):
         """
         Initialise the sampler
@@ -53,10 +53,17 @@ class Sampler(object):
           self.evolution_points.append(p)
         if self.verbose > 2: sys.stderr.write("\n")
         self.proposals.set_ensemble(self.evolution_points)
+
+        processed_points = 0
         for _ in range(len(self.evolution_points)):
           s = self.evolution_points.popleft()
           acceptance,jumps,s = self.metropolis_hastings(s,-np.inf,self.Nmcmc)
           self.evolution_points.append(s)
+
+          processed_points = processed_points + 1
+          if self.verbose > 3:
+            sys.stderr.write("process {0!s} --> running metropolis hastings on pool of {1:d} points for evolution --> {2:.0f} % complete\n".format(os.getpid(), self.poolsize, 100.0*float(processed_points)/float(self.poolsize)))
+        if self.verbose > 3: sys.stderr.write("\n")
         self.proposals.set_ensemble(self.evolution_points)
         self.initialised=True
 
@@ -122,6 +129,9 @@ class Sampler(object):
         oldparam=inParam
         logp_old = self.user.log_prior(oldparam)
         while (jumps < nsteps):
+            if self.verbose > 3:
+                sys.stderr.write("process {0!s} --> running metropolis hastings for single point for {1:d} steps --> {2:.0f} % complete\r".format(os.getpid(), nsteps, 100.0*float(jumps)/float(nsteps)))
+
             newparam = self.proposals.get_sample(oldparam.copy())
             newparam.logP = self.user.log_prior(newparam)
             if newparam.logP-logp_old + self.proposals.log_J > log(random()):
