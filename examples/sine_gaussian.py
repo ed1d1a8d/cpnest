@@ -22,7 +22,6 @@ def freq_domain_sin_gaussian(freq, params):
 
     return ret
 
-
 # returns p(a2),
 # where p is the pdf function of a gaussian centered at a1 with variance var
 def log_gaussian_likelihood(a1, a2, var):
@@ -31,61 +30,7 @@ def log_gaussian_likelihood(a1, a2, var):
     ret = -(norm / var + np.log(2 * np.pi * var)) / 2.0
     return ret.real
 
-params1 = {
-    'alpha': 0,
-    'phi_0': 0,
-    'f_0': 2,
-    'q': 5,
-    'h_rss': 10
-}
-
-params2 = {'alpha': 0, 'phi_0': 0, 'f_0': 2.3069462171112063, 'q': 4.38411564667209, 'h_rss': 10.35212712432972}
-params3 = {'alpha': 0, 'phi_0': 0, 'f_0': 2.315103554315639, 'q': 4.1466850872652365, 'h_rss': 9.110012790812448}
-
-fff = 2.4
-print(freq_domain_sin_gaussian(fff, params2))
-print(freq_domain_sin_gaussian(fff, params3))
-print(log_gaussian_likelihood(freq_domain_sin_gaussian(fff, params2), freq_domain_sin_gaussian(fff, params3), 1))
-print(log_gaussian_likelihood(1, 2, 1))
-
-'''
-x = np.arange(-5, 5, 0.01)
-y = [freq_domain_sin_gaussian(f, params1) for f in x]
-normalized_y = [np.sqrt(a.real * a.real + a.imag * a.imag).real for a in y]
-plt.plot(x, normalized_y)
-
-x = np.arange(-5, 5, 0.01)
-y = [freq_domain_sin_gaussian(f, params2) for f in x]
-normalized_y = [np.sqrt(a.real * a.real + a.imag * a.imag).real for a in y]
-plt.plot(x, normalized_y)
-
-x = np.arange(-5, 5, 0.01)
-y = [freq_domain_sin_gaussian(f, params3) for f in x]
-normalized_y = [np.sqrt(a.real * a.real + a.imag * a.imag).real for a in y]
-plt.plot(x, normalized_y)
-
-plt.show()
-'''
-
-'''
-def sin_gaussian(t, params):
-    var, freq, amp = params
-    return amp * np.sin(t * freq) * np.exp(- t * t / var / 2.0)
-
-def generate_freq_sin_gaussian(t_low, t_high, sample_freq, sg_params):
-    times = np.linspace(t_low, t_high, sample_freq * (t_high - t_low))
-    t_data = [sin_gaussian(t, sg_params) for t in times]
-    f_data = fft(t_data)
-    return f_data
-'''
-
 class SineGaussianModel(cpnest.model.Model):
-    freq_low = -5
-    freq_high = 5
-    freq_step = 0.01
-
-    names = ['f_0', 'q', 'h_rss']
-    bounds = [[1, 3], [4, 6], [9, 11]]
 
     # What cpnest is trying to guess
     data_params = {
@@ -96,12 +41,41 @@ class SineGaussianModel(cpnest.model.Model):
         'h_rss': 10
     }
 
+    names = ['f_0', 'q', 'h_rss']
+    bounds = [[1, 3], [4, 6], [9, 11]]
+
+    freq_low = 0
+    freq_high = 4
+    freq_step = 0.01
+
     # We assume noise for each frequency is gaussian.
     # This function returns the variance of the gaussian for a given frequency.
-    def noise(self, freq):
-        return 1 #same noise for all distributions
+    def noise_variance(self, freq):
+        return 0.02 #same noise for all distributions
 
-    cnt = 0
+    # returns a random value from a complex gaussian with variance defined by
+    # function noise_variance
+    def noise(self, freq):
+        var = self.noise_variance(freq)
+        real = np.random.normal(scale=np.sqrt(var / 2.0))
+        imag = np.random.normal(scale=np.sqrt(var / 2.0))
+        ret = real + 1j * imag
+        return ret
+
+    # need init function so can use class variables in list comprehension
+    def __init__(self):
+        np.random.seed(12345)
+
+        self.freqs = np.arange(self.freq_low, self.freq_high, self.freq_step)
+
+        self.data = [freq_domain_sin_gaussian(freq, self.data_params)
+                     + self.noise(freq)
+                     for freq in self.freqs]
+
+        magnitude_data = [np.sqrt(a.real * a.real + a.imag * a.imag).real
+                          for a in self.data]
+        plt.plot(self.freqs, magnitude_data)
+        plt.savefig('sine-gaussian-data.png')
 
     def log_likelihood(self, live_point):
         sample_params = self.data_params.copy()
@@ -110,21 +84,15 @@ class SineGaussianModel(cpnest.model.Model):
 
         tot = 0
         freq = self.freq_low
-
-        while freq <= self.freq_high:
-            data_val = freq_domain_sin_gaussian(freq, self.data_params)
+        for i in range(len(self.freqs)):
+            freq = self.freqs[i]
+            data_val = self.data[i]
             sample_val = freq_domain_sin_gaussian(freq, sample_params)
-            noise_var = 1
+            noise_var = self.noise_variance(freq)
 
             tot = tot + log_gaussian_likelihood(data_val,
                                                 sample_val,
                                                 noise_var)
-            freq = freq + self.freq_step
-
-        # To more easily track progress
-        #self.cnt = self.cnt + 1
-        #if self.cnt % 50 == 0:
-        #    print(self.cnt, sample_params, tot)
 
         return tot
 
